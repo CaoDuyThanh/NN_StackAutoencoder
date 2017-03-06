@@ -172,35 +172,34 @@ def StackAutoencoder():
         [encoderLayer.LoadModel(file) for encoderLayer in encoderLayers]
         file.close()
     iter = 0
-    bestSumCost = 10000
 
     # Pre-training stage
-    for epoch in range(PRETRAINING_EPOCH):
-        for trainBatchIdx in range(nTrainBatchs):
-            iter += BATCH_SIZE
-            subTrainSetX = trainSetX.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE : (trainBatchIdx + 1) * BATCH_SIZE]
-            costAELayer = [ encoderLayerFunc[0](subTrainSetX, PRETRAINING_LEARNING_RATE) for encoderLayerFunc in encoderLayersFunc]
+    for idx, encoderLayerFunc in enumerate(encoderLayersFunc):
+        print ('Train layer %d ' % (idx))
+        for epoch in range(PRETRAINING_EPOCH):
+            for trainBatchIdx in range(nTrainBatchs):
+                iter += BATCH_SIZE
+                subTrainSetX = trainSetX.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE : (trainBatchIdx + 1) * BATCH_SIZE]
+                costAELayer = encoderLayerFunc[0](subTrainSetX, PRETRAINING_LEARNING_RATE)
 
-            if iter % VISUALIZE_FREQUENCY == 0:
-                print ('Epoch = %d, iteration = %d ' % (epoch, iter))
-                for idx, costAE in enumerate(costAELayer):
-                    print ('      CostAELayer %d = %f ' % (idx, costAE[0]))
+                if iter % VISUALIZE_FREQUENCY == 0:
+                    print ('Epoch = %d, iteration = %d ' % (epoch, iter))
+                    print ('      CostAELayer = %f ' % (costAELayer[0]))
 
-            if iter % VALIDATION_FREQUENCY == 0:
-                sumCost = 0
-                print ('Validate current model ')
-                for validBatchIdx in range(nValidBatchs):
-                    subValidSetX = validSetX.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
-                    costAELayer = [encoderLayerFunc[1](subValidSetX) for encoderLayerFunc in encoderLayersFunc]
-                    sumCost += numpy.sum(costAELayer)
-                sumCost /= (len(encoderLayersFunc) * nValidBatchs)
+                if iter % VALIDATION_FREQUENCY == 0:
+                    print ('Validate current model ')
 
-                if (sumCost < bestSumCost):
-                    bestSumCost = sumCost
-                    print ('Save model ! Sum cost = %f ' % (sumCost))
-                    file = open(PRETRAINING_SAVE_PATH, 'wb')
+                    validCost = 0
+                    for validBatchIdx in range(nValidBatchs):
+                        subValidSetX = validSetX.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
+                        validCost += encoderLayerFunc[1](subValidSetX)[0]
+                    validCost /= nValidBatchs
+                    print ('Validation cost = %f ' % (validCost))
+
+                    file = open(SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     file.close()
+                    print('Save model !')
 
     # Fine-tuning stage
     # Load save model
