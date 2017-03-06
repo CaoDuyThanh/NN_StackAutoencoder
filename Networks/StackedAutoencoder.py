@@ -21,10 +21,12 @@ CORRUPTIONS_LAYERS = [0.1, 0.2, 0.3]
 NUM_OUT = 10
 
 # Pretrain hyper parameters
+PRETRAINING_SAVE_PATH = '../Pretrained/pretrain_stage.pkl'
 PRETRAINING_EPOCH = 15
 PRETRAINING_LEARNING_RATE = 0.001
 
 # Fine-tuning hyper parameters
+TRAINING_SAVE_PATH = '../Pretrained/training_stage.pkl'
 TRAINING_EPOCH = 1000
 TRAINING_LEARNING_RATE = 0.1
 
@@ -140,10 +142,9 @@ def StackAutoencoder():
         encoderLayersFunc.append([trainFunc, validFunc, testFunc])
 
     # Hidden layer
-    hiddenLayersFunc = []
     hiddenLayer = hiddenLayers[-1]
     hiddenLayerOut = hiddenLayer.Output
-    cost = CrossEntropy(hiddenLayerOut, Y)
+    cost = BinaryCrossEntropy(hiddenLayerOut, Y)
     params = hiddenLayer.Params
     grads = T.grad(cost, params)
     updates = [(param, param - LearningRate * grad)
@@ -160,14 +161,14 @@ def StackAutoencoder():
         inputs = [X, Y],
         outputs = [cost]
     )
-    hiddenLayersFunc.append([trainFunc, testFunc])
+    fineTuningFunc = [trainFunc, testFunc]
 
     ################################################
     #           Training the model                 #
     ################################################
     # Load old model before training
-    if os.path.isfile(SAVE_PATH):
-        file = open(SAVE_PATH)
+    if os.path.isfile(PRETRAINING_SAVE_PATH):
+        file = open(PRETRAINING_SAVE_PATH)
         [encoderLayer.LoadModel(file) for encoderLayer in encoderLayers]
         file.close()
     iter = 0
@@ -195,39 +196,55 @@ def StackAutoencoder():
                 sumCost /= (len(encoderLayersFunc) * nValidBatchs)
 
                 if (sumCost < bestSumCost):
+                    bestSumCost = sumCost
                     print ('Save model ! Sum cost = %f ' % (sumCost))
-                    file = open(SAVE_PATH, 'wb')
+                    file = open(PRETRAINING_SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     file.close()
 
     # Fine-tuning stage
     # Load save model
-    if os.path.isfile(SAVE_PATH):
-        file = open(SAVE_PATH)
+    if os.path.isfile(PRETRAINING_SAVE_PATH):
+        file = open(PRETRAINING_SAVE_PATH)
         [encoderLayer.LoadModel(file) for encoderLayer in encoderLayers]
         file.close()
-
-    shape = [
-        (28, 28),
-        (50, 20),
-        (50, 20)
-    ]
+    shape = [(28, 28), (50, 20), (50, 20)]
     for idx, encoderLayer in enumerate(encoderLayers):
         image = Image.fromarray(tile_raster_images(
             X=encoderLayer.Params[0].get_value(borrow=True).T,
             img_shape=shape[idx], tile_shape=(10, 10),
             tile_spacing=(1, 1)))
         image.save('filters_corruption_30_%d.png' % (idx))
+    # Traing.....
+    iter = 0
+    bestCost = 10000
+    for epoch in range(TRAINING_EPOCH):
+        for trainBatchIdx in range(nTrainBatchs):
+            iter += BATCH_SIZE
+            subTrainSetX = trainSetX.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE: (trainBatchIdx + 1) * BATCH_SIZE]
+            subTrainSetY = trainSetY.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE: (trainBatchIdx + 1) * BATCH_SIZE]
+            cost = fineTuningFunc[0](subTrainSetX, subTrainSetY, PRETRAINING_LEARNING_RATE)
 
-    # for epoch in
+            if iter % VISUALIZE_FREQUENCY == 0:
+                print ('Epoch = %d, iteration = %d ' % (epoch, iter))
+                print ('      Cost fine-tuning = %f ' % (cost))
 
+            if iter % VALIDATION_FREQUENCY == 0:
+                validCost = 0
+                print ('Validate current model ')
+                for validBatchIdx in range(nValidBatchs):
+                    subValidSetX = validSetX.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
+                    subValidSetY = validSetY.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
+                    validCost += fineTuningFunc[1](subValidSetX, subValidSetY)
+                validCost /= (nValidBatchs)
 
-
-
-
-
-
-
+                if (validCost < bestCost):
+                    bestCost = validCost
+                    print ('Save model ! Sum cost = %f ' % (sumCost))
+                    file = open(TRAINING_SAVE_PATH, 'wb')
+                    [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
+                    hiddenLayers[-1].SaveModel(file)
+                    file.close()
 
 if __name__ == '__main__':
     StackAutoencoder()
