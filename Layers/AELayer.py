@@ -58,7 +58,7 @@ class AELayer:
         self.Output = hidLayer1Output
 
         # Cost function
-        self.CostFunc = CategoryEntropy(self.Output, self.Input)
+        self.CostFunc = BinaryCrossEntropy(self.Output, self.Input)
 
         # Update function
         grads = T.grad(self.CostFunc, self.Params)
