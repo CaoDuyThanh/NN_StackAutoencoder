@@ -13,8 +13,8 @@ class HiddenLayer:
                  numOut,                # Number reurons out of layer
                  activation = T.tanh,   # Activation function
                  corruption = 0.0,
-                 W=None,
-                 b=None,
+                 W = None,
+                 b = None
                  ):
         # Set parameters
         self.Rng = rng;
