@@ -1,6 +1,7 @@
 from __future__ import print_function
 import timeit
 import Image
+import os
 import Utils.DataHelper as DataHelper
 from pylab import *
 from Layers.AELayer import *
@@ -9,7 +10,7 @@ from Utils.FilterHelper import *
 
 # Hyper parameters
 DATASET_NAME = '../Dataset/mnist.pkl.gz'
-SAVE_PATH = '../Pretrained/model.pkl'
+SAVE_PATH = '../Pretrained/model_batch_50.pkl'
 BATCH_SIZE = 1
 VALIDATION_FREQUENCY = 10000
 VISUALIZE_FREQUENCY = 500
@@ -161,17 +162,21 @@ def StackAutoencoder():
     )
     hiddenLayersFunc.append([trainFunc, testFunc])
 
-
     ################################################
     #           Training the model                 #
     ################################################
+    # Load old model before training
+    if os.path.isfile(SAVE_PATH):
+        file = open(SAVE_PATH)
+        [encoderLayer.LoadModel(file) for encoderLayer in encoderLayers]
+        file.close()
     iter = 0
     bestSumCost = 10000
 
     # Pre-training stage
     for epoch in range(PRETRAINING_EPOCH):
         for trainBatchIdx in range(nTrainBatchs):
-            iter += 1
+            iter += BATCH_SIZE
             subTrainSetX = trainSetX.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE : (trainBatchIdx + 1) * BATCH_SIZE]
             costAELayer = [ encoderLayerFunc[0](subTrainSetX, PRETRAINING_LEARNING_RATE) for encoderLayerFunc in encoderLayersFunc]
 
@@ -186,25 +191,43 @@ def StackAutoencoder():
                 for validBatchIdx in range(nValidBatchs):
                     subValidSetX = validSetX.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
                     costAELayer = [encoderLayerFunc[1](subValidSetX) for encoderLayerFunc in encoderLayersFunc]
-                    sumCost += sum(costAELayer)
+                    sumCost += numpy.sum(costAELayer)
                 sumCost /= (len(encoderLayersFunc) * nValidBatchs)
 
                 if (sumCost < bestSumCost):
-                    print ('Save model !')
+                    print ('Save model ! Sum cost = %f ' % (sumCost))
                     file = open(SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     file.close()
 
-
-
-
-
-
-
-
-
-
     # Fine-tuning stage
+    # Load save model
+    if os.path.isfile(SAVE_PATH):
+        file = open(SAVE_PATH)
+        [encoderLayer.LoadModel(file) for encoderLayer in encoderLayers]
+        file.close()
+
+    shape = [
+        (28, 28),
+        (50, 20),
+        (50, 20)
+    ]
+    for idx, encoderLayer in enumerate(encoderLayers):
+        image = Image.fromarray(tile_raster_images(
+            X=encoderLayer.Params[0].get_value(borrow=True).T,
+            img_shape=shape[idx], tile_shape=(10, 10),
+            tile_spacing=(1, 1)))
+        image.save('filters_corruption_30_%d.png' % (idx))
+
+    # for epoch in
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     StackAutoencoder()
