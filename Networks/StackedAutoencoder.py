@@ -239,7 +239,7 @@ def StackAutoencoder():
 
                 if (validCost < bestCost):
                     bestCost = validCost
-                    print ('Save model ! Sum cost = %f ' % (sumCost))
+                    print ('Save model ! Sum cost = %f ' % (validCost))
                     file = open(TRAINING_SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     hiddenLayers[-1].SaveModel(file)
