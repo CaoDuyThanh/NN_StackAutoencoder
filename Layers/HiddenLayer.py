@@ -33,7 +33,7 @@ class HiddenLayer:
         if self.W is None:
             """ We create random weights (uniform distribution) """
             # Create boundary for uniform generation
-            wBound = numpy.sqrt(6.0 / (self.NumIn + self.NumOut))
+            wBound = 4 * numpy.sqrt(6.0 / (self.NumIn + self.NumOut))
             self.W = theano.shared(
                 numpy.asarray(
                     self.Rng.uniform(
