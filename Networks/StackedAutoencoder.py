@@ -10,10 +10,9 @@ from Utils.FilterHelper import *
 
 # Hyper parameters
 DATASET_NAME = '../Dataset/mnist.pkl.gz'
-SAVE_PATH = '../Pretrained/model_batch_50.pkl'
 BATCH_SIZE = 1
-VALIDATION_FREQUENCY = 10000
-VISUALIZE_FREQUENCY = 500
+VALIDATION_FREQUENCY = 50000
+VISUALIZE_FREQUENCY = 5000
 
 # NETWORK
 HIDDEN_LAYERS_SIZES = [1000, 1000, 1000]
@@ -58,9 +57,10 @@ def StackAutoencoder():
 
     '''
     # Create random state
-    rng = numpy.random.RandomState(123)
+    rng = numpy.random.RandomState(89677)
 
     # Create shared variable for input
+    Index = T.lscalar('Index')
     X = T.matrix('X')
     Y = T.ivector('Y')
     LearningRate = T.fscalar('LearningRate')
@@ -104,12 +104,15 @@ def StackAutoencoder():
         )
         hiddenLayers.append(hiddenLayer)
     # Add logistic layer on top of MLP
+    W = theano.shared(numpy.zeros((HIDDEN_LAYERS_SIZES[-1], NUM_OUT), dtype='float32'),
+                      borrow = True)
     hiddenLayer = HiddenLayer(
         rng = rng,  # Random seed
         input = hiddenLayers[-1].Output,  # Data input
         numIn = HIDDEN_LAYERS_SIZES[-1],  # Number neurons of input
         numOut = NUM_OUT,  # Number reurons out of layer
-        activation = T.nnet.sigmoid  # Activation function
+        activation = T.nnet.softmax,  # Activation function
+        W = W
     )
     hiddenLayers.append(hiddenLayer)
 
@@ -128,40 +131,55 @@ def StackAutoencoder():
             updates = encoderLayer.Updates
         )
 
-        # Valid function
-        validFunc = theano.function(
-            inputs=[X],
-            outputs=[encoderLayer.CostFunc]
-        )
-
         # Test function
         testFunc = theano.function(
             inputs = [X],
             outputs = [encoderLayer.CostFunc]
         )
-        encoderLayersFunc.append([trainFunc, validFunc, testFunc])
+        encoderLayersFunc.append([trainFunc, testFunc])
 
     # Hidden layer
     hiddenLayer = hiddenLayers[-1]
     hiddenLayerOut = hiddenLayer.Output
-    cost = BinaryCrossEntropy(hiddenLayerOut, Y)
-    params = hiddenLayer.Params
+    cost = CrossEntropy(hiddenLayerOut, Y)
+    yPredict = T.argmax(hiddenLayerOut, axis = 1)
+    error = Error(yPredict, Y)
+    params = []
+    [params.extend(hiddenLayer.Params) for hiddenLayer in hiddenLayers]
     grads = T.grad(cost, params)
     updates = [(param, param - LearningRate * grad)
                for (param, grad) in zip(params, grads)]
     # Train function
     trainFunc = theano.function(
-        inputs = [X, Y, LearningRate],
+        inputs = [Index, LearningRate],
         outputs = [cost],
-        updates = updates
+        updates = updates,
+        givens = {
+            X: trainSetX[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+            Y: trainSetY[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+        }
     )
 
-    # Train function
-    testFunc = theano.function(
-        inputs = [X, Y],
-        outputs = [cost]
+    # Valid function
+    validFunc = theano.function(
+        inputs=[Index],
+        outputs=[error],
+        givens={
+            X: validSetX[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+            Y: validSetY[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+        }
     )
-    fineTuningFunc = [trainFunc, testFunc]
+
+    # Test function
+    testFunc = theano.function(
+        inputs = [Index],
+        outputs = [error],
+        givens={
+            X: testSetX[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+            Y: testSetY[Index * BATCH_SIZE : (Index + 1) * BATCH_SIZE],
+        }
+    )
+    fineTuningFunc = [trainFunc, validFunc, testFunc]
 
     ################################################
     #           Training the model                 #
@@ -196,7 +214,7 @@ def StackAutoencoder():
                     validCost /= nValidBatchs
                     print ('Validation cost = %f ' % (validCost))
 
-                    file = open(SAVE_PATH, 'wb')
+                    file = open(PRETRAINING_SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     file.close()
                     print('Save model !')
@@ -216,30 +234,26 @@ def StackAutoencoder():
         image.save('filters_corruption_30_%d.png' % (idx))
     # Traing.....
     iter = 0
-    bestCost = 10000
+    bestError = 10000
     for epoch in range(TRAINING_EPOCH):
         for trainBatchIdx in range(nTrainBatchs):
             iter += BATCH_SIZE
-            subTrainSetX = trainSetX.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE: (trainBatchIdx + 1) * BATCH_SIZE]
-            subTrainSetY = trainSetY.get_value(borrow = True)[trainBatchIdx * BATCH_SIZE: (trainBatchIdx + 1) * BATCH_SIZE]
-            cost = fineTuningFunc[0](subTrainSetX, subTrainSetY, PRETRAINING_LEARNING_RATE)
+            cost = fineTuningFunc[0](trainBatchIdx, TRAINING_LEARNING_RATE)
 
             if iter % VISUALIZE_FREQUENCY == 0:
                 print ('Epoch = %d, iteration = %d ' % (epoch, iter))
-                print ('      Cost fine-tuning = %f ' % (cost))
+                print ('      Cost fine-tuning = %f ' % (cost[0]))
 
             if iter % VALIDATION_FREQUENCY == 0:
-                validCost = 0
+                validError = 0
                 print ('Validate current model ')
                 for validBatchIdx in range(nValidBatchs):
-                    subValidSetX = validSetX.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
-                    subValidSetY = validSetY.get_value(borrow=True)[validBatchIdx * BATCH_SIZE: (validBatchIdx + 1) * BATCH_SIZE]
-                    validCost += fineTuningFunc[1](subValidSetX, subValidSetY)
-                validCost /= (nValidBatchs)
+                    validError += fineTuningFunc[1](validBatchIdx)[0]
+                validError /= (nValidBatchs)
 
-                if (validCost < bestCost):
-                    bestCost = validCost
-                    print ('Save model ! Sum cost = %f ' % (validCost))
+                if (validError < bestError):
+                    bestError = validError
+                    print ('Save model ! Sum cost = %f ' % (validError))
                     file = open(TRAINING_SAVE_PATH, 'wb')
                     [encoderLayer.SaveModel(file) for encoderLayer in encoderLayers]
                     hiddenLayers[-1].SaveModel(file)
