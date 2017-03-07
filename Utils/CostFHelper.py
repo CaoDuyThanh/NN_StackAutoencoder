@@ -28,4 +28,4 @@ def MSE(output, y):
 """ Error """
 def Error(output, y):
     # return -T.mean(T.neq(T.argmax(output), T.argmax(y)))
-    return T.mean(T.neq(T.argmax(output, 1), y))
+    return T.mean(T.neq(output, y))
